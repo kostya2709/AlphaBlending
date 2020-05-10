@@ -7,6 +7,11 @@ int main()
     picture.load_file ("cats.bmp");
     BMP_file front;
     front.load_file ("zxc_(2).bmp");
-    picture.blend_with (front, 50, 0);
-    picture.draw ();
+    //front.set_transparency (50);
+    //front.set_transparency (50);
+    //front.set_transparency (50);
+    //front.set_transparency (50);
+    picture.sse_blend_with (front, 50, 0);
+    //picture.draw ();
+    //front.draw();
 }

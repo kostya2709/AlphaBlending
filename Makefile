@@ -12,7 +12,8 @@ $(FNAME): $(FNAME).o
 $(FNAME).o:
 	@g++ $(CFLAGS)  main.cpp
 
-
+callgrind:
+	@valgrind --tool=callgrind ./$(FNAME)
 
 clean:
 	@rm -rf *.o

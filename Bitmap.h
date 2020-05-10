@@ -14,12 +14,52 @@
 #include <string.h>
 #endif
 
+#ifndef emmintrin.h
+#include <emmintrin.h>
+#endif
+
+#ifndef immintrin.h
+#include <immintrin.h>
+#endif
+
+#ifndef timmintin.h
+#include <tmmintrin.h>
+#endif
+
+enum Mask {Alpha = 0xFF000000, Red = 0x00FF0000, Green = 0x0000FF00, Blue = 0x000000FF};
+
+class pixel
+{
+public:
+    
+    uint8_t blue = 0;
+    uint8_t green = 0;
+    uint8_t red = 0;
+    uint8_t alpha = 0;
+
+    explicit pixel (uint32_t pixel) 
+    {
+        alpha = (pixel & Mask::Alpha) >> 24;
+        red = (pixel & Mask::Red) >> 16;
+        green = (pixel & Mask::Green) >> 8;
+        blue = (pixel & Mask::Blue);   
+    }
+
+    operator uint32_t()
+    {
+        return *((uint32_t*)(this));
+    }
+
+    pixel (void) {};
+};
+
 struct BMP_file
 {
 private:
+
 //Bitmap file header:
 
-    unsigned short bfType = 0x424D;             // Type of the file. 424D or 4D42 is expected for BMP-file.
+    uint16_t bfType = 0x424D;             // Type of the file. 424D or 4D42 is expected for BMP-file.
     unsigned int bfSize = 0;                    // Size of the file in bytes.
     unsigned int bfReserved = 0;                // Reserved DWORD. 0 is expected.
     unsigned int bfOffBits = 0x8A;              // Bias from the start of the file up to data segment.
@@ -66,7 +106,7 @@ private:
     unsigned int pixel_number = 0;              // Number of pixels in the raster.
     unsigned int bytes_in_pixel = 0;            // Number of bytes in a pixel.
 
-    uint8_t** data = NULL;                      // Array of pixels.
+    pixel* data = NULL;                         // Array of pixels.
     char* file_name = NULL;                     // Name of the picture.
 
 public:
@@ -74,12 +114,16 @@ public:
     void load_file (const char* file_name);     // This function loads BMP-file to the program with all its attributes.
     void draw (void);
     void blend_with (const BMP_file& upper, unsigned int pos_x, unsigned int pos_y);
+    void sse_blend_with (const BMP_file& upper, unsigned int pos_x, unsigned int pos_y);
+    void save_to_file (const char* new_file_name);
+    void set_transparency (uint8_t new_alpha);
     ~BMP_file ();
 
 private:
 
     void inline fill_ARGB (unsigned int x, unsigned int y, uint8_t Red, uint8_t Green, uint8_t Blue, uint8_t Alpha);
 };
+
 
 void BMP_file::load_file (const char* file_name)
 {
@@ -127,6 +171,8 @@ void BMP_file::load_file (const char* file_name)
             throw "Expected '1' in bcPlanes in BMP picture!";
 
         fine = fread (&bcBitCount, sizeof (bcBitCount), 1, f);
+        if (bcBitCount != 32)
+            throw "Sorry! I know only 32-bit format!";
 
         if (bcSize > 12)
         {
@@ -170,30 +216,28 @@ void BMP_file::load_file (const char* file_name)
         pixel_number = abs (bcWidth * bcHeight);
         bytes_in_pixel = bcBitCount / 8;
 
-        data = new uint8_t* [pixel_number];
-        
-        for (int i = 0; i < pixel_number; ++i)
-            data[i] = new uint8_t [bytes_in_pixel];
-
+        data = new pixel [pixel_number];
 
         uint8_t alpha = 0;
 
-        for (int i = 0; i < pixel_number; ++i)
+        for (int i = 0; i < pixel_number; i += 1)
         {   
-            for (int j = 0; j < bytes_in_pixel; ++j)
-                fine = fread (&data[i][j], 1, 1, f);
+            fine = fread (&data[i], 1, 4, f);
 
-            alpha = (data [i][bytes_in_pixel - 1]);
-            if (alpha != 0 && alpha != 255)
-                printf ("I found it! %u\n", alpha);
+            alpha = data[i].alpha;
 
             for (int j = 0; j < bytes_in_pixel - 1; ++j)
-                data [i][j] = ((data [i][j] + 1) * alpha) >> 8;
+            {
+                data [i].red = ((data [i].red + 1) * alpha) >> 8;
+                data [i].green = ((data [i].green + 1) * alpha) >> 8;
+                data [i].blue = ((data [i].blue + 1) * alpha) >> 8;
+            }
         }
 
         fclose (f);
 
     }
+
     catch (const char* str)
     {
         printf ("Warning! %s\n", str);
@@ -225,7 +269,7 @@ void BMP_file :: draw (void)
     {
         for (int x = 0; x < abs (bcWidth); ++x)
             {
-                image.setPixel (x, y, sf::Color (data [counter][2], data [counter][1], data [counter][0], 255));
+                image.setPixel (x, y, sf::Color (data [counter].red, data [counter].green, data [counter].blue, 255));
                 counter += delta;
             }
     }
@@ -254,7 +298,7 @@ void BMP_file :: draw (void)
 
 void inline BMP_file :: fill_ARGB (unsigned int x, unsigned int y, uint8_t Red, uint8_t Green, uint8_t Blue, uint8_t Alpha)
 {
-    if (x > bcWidth || x < 0 || y > abs (bcHeight) || y < 0)
+    if (x > abs (bcWidth) || x < 0 || y > abs (bcHeight) || y < 0)
     {
         printf ("Error! Wrong coordinates in 'fill_ARGB'!\n");
         return;
@@ -262,10 +306,10 @@ void inline BMP_file :: fill_ARGB (unsigned int x, unsigned int y, uint8_t Red, 
 
     unsigned int coordinate = x + y * abs (bcWidth);
 
-    this->data [coordinate][0] = Blue;
-    this->data [coordinate][1] = Green;
-    this->data [coordinate][2] = Red;
-    this->data [coordinate][3] = Alpha;
+    this->data [coordinate].blue = Blue;
+    this->data [coordinate].green = Green;
+    this->data [coordinate].red = Red;
+    this->data [coordinate].alpha = Alpha;
 
     return;
 }
@@ -273,8 +317,11 @@ void inline BMP_file :: fill_ARGB (unsigned int x, unsigned int y, uint8_t Red, 
 void BMP_file :: blend_with (const BMP_file& upper, unsigned int pos_x, unsigned int pos_y)
 {
 
-    unsigned long long coordinate_f = 0;
-    unsigned long long coordinate_b = 0; 
+    unsigned int pos_f = 0;
+    unsigned int pos_b = 0; 
+
+    pixel& pixel_up = data[0];
+    pixel& pixel_down = data[0];
 
     for (unsigned int y = 0; y < abs (bcHeight); ++y)
     {
@@ -282,35 +329,153 @@ void BMP_file :: blend_with (const BMP_file& upper, unsigned int pos_x, unsigned
         {   
             if ((x >= pos_x) && (x < pos_x + abs (upper.bcWidth)) && (y >= pos_y) && (y < pos_y + abs (upper.bcHeight)))
             {
-                coordinate_f = x - pos_x + (y - pos_y) * upper.bcWidth;
-                coordinate_b = x + y * bcWidth;
+                pos_f = x - pos_x + (y - pos_y) * upper.bcWidth;
+                pos_b = x + y * bcWidth;
+
+                pixel_up = upper.data [pos_f];
                 
-                uint8_t right = data [coordinate_b][3] * (0xFF - upper.data [coordinate_f][3]);
-                uint8_t left = upper.data [coordinate_f][3];
-                uint8_t res_alpha = left + right;
+                uint8_t right = (0xFF - upper.data [pos_f].alpha);
+                uint8_t left = upper.data [pos_f].alpha;
+                data [pos_b].alpha = left + data [pos_b].alpha * right;
 
-                if (!res_alpha)
+                if (!data [pos_b].alpha)
+                {
                     this->fill_ARGB (x, y, 0, 0, 0, 0);
+                    return;
+                }
 
-                for (int i = 0; i < 4; ++i)
-                    data [coordinate_b][i] = (upper.data [coordinate_f][i] * left + data [coordinate_b][i] * right) / res_alpha;
-            }
-            else
-            {
-
+                data [pos_b].red = upper.data [pos_f].red + ((data [pos_b].red * right + 1) >> 8);
+                data [pos_b].green = upper.data [pos_f].green + ((data [pos_b].green * right + 1) >> 8);
+                data [pos_b].blue = upper.data [pos_f].blue + ((data [pos_b].blue * right + 1) >> 8);
             }
         }
+    }
+}
+
+inline volatile uint8_t get_alpha (uint32_t pixel)
+{
+    return (pixel & 0xFF000000) >> 24;
+}
+
+void BMP_file :: sse_blend_with (const BMP_file& upper, unsigned int pos_x, unsigned int pos_y)
+{
+
+    __m128i mask_shuffle_low = _mm_setr_epi8 (128, 0, 128, 1, 128, 2, 128, 3, 128, 4, 128, 5, 128, 6, 128, 7);
+    __m128i mask_shuffle_high = _mm_setr_epi8 (128, 8, 128, 9, 128, 10, 128, 11, 128, 12, 128, 13, 128, 14, 128, 15);
+    __m128i mask_shuffle_back = _mm_setr_epi8 (1, 3, 5, 7, 9, 11, 13, 15, 128, 128, 128, 128, 128, 128, 128, 128);
+    __m128i mask_shuffle_alpha_low = _mm_setr_epi8 (128, 0, 128, 0, 128, 0, 128, 0, 128, 1, 128, 1, 128, 1, 128, 1);
+    __m128i mask_shuffle_alpha_high = _mm_setr_epi8 (128, 2, 128, 2, 128, 2, 128, 2, 128, 3, 128, 3, 128, 3, 128, 3);
+    __m128i mask_add_one = _mm_setr_epi8 (0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1);
+
+
+    __m128i pixels = {};
+    __m128i res_shuffle_low  = {};
+    __m128i res_shuffle_high = {};
+
+    __m128i res_shuffle_src_low  = {};
+    __m128i res_shuffle_src_high = {};
+
+
+    __m128i res_shuffle_alpha_low  = {};
+    __m128i res_shuffle_alpha_high = {};
+
+
+    __m128i res_mul_low  = {};
+    __m128i res_mul_high = {};
+
+
+    __m128i source_pixels = {};
+    __m128i alpha_array = {};
+    __m128i result = {};
+
+
+    for (uint32_t i = 0; i < 4; i += 4)
+    {
+        printf ("1 - %x, 2 - %x, 3 - %x, 4 - %x\n", data[i], data[i + 1], data[i + 2], data[i + 3]);
+        pixels = _mm_setr_epi32 (data[i], data[i + 1], data[i + 2], data[i + 3]);                                   // Stores pixels in a 128-bits register.
+        source_pixels =  _mm_setr_epi32 (upper.data[i], upper.data[i + 1], upper.data[i + 2], upper.data[i + 3]); 
+
+        alpha_array = _mm_setr_epi8 (get_alpha (data[i]), get_alpha (data[i + 1]), get_alpha (data[i + 2]), get_alpha (data[i + 3]), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+
+        res_shuffle_low  = _mm_shuffle_epi8 (pixels, mask_shuffle_low);
+        res_shuffle_high = _mm_shuffle_epi8 (pixels, mask_shuffle_high);
+
+
+        res_shuffle_src_low  = _mm_shuffle_epi8 (source_pixels, mask_shuffle_low);
+        res_shuffle_src_high = _mm_shuffle_epi8 (source_pixels, mask_shuffle_high);
+
+
+        res_shuffle_low  = _mm_add_epi64 (res_shuffle_low, mask_add_one);
+        res_shuffle_high = _mm_add_epi64 (res_shuffle_high, mask_add_one);
+
+
+        res_shuffle_alpha_low  = _mm_shuffle_epi8 (alpha_array, mask_shuffle_alpha_low);
+        res_shuffle_alpha_high = _mm_shuffle_epi8 (alpha_array, mask_shuffle_alpha_high);
+
+    
+        res_mul_low  = _mm_mulhi_epu16 (res_shuffle_low, res_shuffle_alpha_low);
+        res_mul_high = _mm_mulhi_epu16 (res_shuffle_low, res_shuffle_alpha_high);
+
+
+        res_shuffle_low  = _mm_add_epi64 (res_mul_low, res_shuffle_src_low);
+        res_shuffle_high = _mm_add_epi64 (res_mul_high, res_shuffle_src_high);
+
+
+        result = _mm_shuffle_epi8 (res_shuffle_low, mask_shuffle_back);
+        _mm_storeu_si64 ((uint64_t*)(&data[i]), result);
+
+        result = _mm_shuffle_epi8 (res_shuffle_high, mask_shuffle_back);
+        _mm_storeu_si64 ((uint64_t*)(&data[i]) + 1, result);
+
+        _mm_storeu_si128 ((__m128i*)(&data[i]), res_mul_low);
+        printf ("1 - %x, 2 - %x, 3 - %x, 4 - %x\n", data[i], data[i + 1], data[i + 2], data[i + 3]);
+
+        _mm_storeu_si128 ((__m128i*)(&data[i]), res_mul_low);
+        _mm_storeu_si128 ((__m128i*)(&data[i]) + 4, res_mul_high);
+
+        printf ("1 - %x, 2 - %x, 3 - %x, 4 - %x\n", data[i], data[i + 1], data[i + 2], data[i + 3]);
     }
 
 }
 
+void BMP_file :: set_transparency (uint8_t new_alpha)
+{
+    for (unsigned int i = 0; i < pixel_number; ++i)
+    {
+        if (data[i].alpha == 0)
+            continue;
+
+        data[i].blue = (((data[i].blue << 8) / data[i].alpha + 1)* new_alpha) >> 8;
+        data[i].red = (((data[i].red << 8) / data[i].alpha + 1)* new_alpha) >> 8;
+        data[i].green = (((data[i].green << 8) / data[i].alpha + 1) * new_alpha) >> 8;
+        data[i].alpha = new_alpha;
+    }
+}
+
+/*
+void BMP_file :: save_to_file (const char* new_file_name)
+{
+    char* file = (char*)(this + 10);
+    FILE* f = fopen (new_file_name, "wb");
+
+    uint64_t size = bcWidth * bcHeight;
+
+    for (int i = 0; i < bfOffBits; ++i)
+        fprintf (f, "%c", *(file++));
+printf ("OKKK\n");
+    file = (char*)(this + bfOffBits);
+printf ("size %u, %u\n", size, this->pixel_number);
+    for (uint64_t i = 0; i < pixel_number; ++i)
+    {
+        fprintf (f, "%u", data[i]);
+        //printf ("%d\n", i);
+    }
+
+    fclose (f);
+}
+*/
+
 BMP_file :: ~BMP_file ()
 {
-
-    unsigned int pixel_num = abs (bcWidth * bcHeight);
-    for (int i = 0; i < pixel_num; ++i)
-    {
-        delete [] data[i];
-    }
     delete [] data;
 }
