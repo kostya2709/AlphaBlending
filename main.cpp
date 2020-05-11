@@ -4,14 +4,9 @@
 int main()
 {
     BMP_file picture;
-    picture.load_file ("cats.bmp");
+    picture.load_file ("matan3.bmp");
     BMP_file front;
-    front.load_file ("zxc_(2).bmp");
-    //front.set_transparency (50);
-    //front.set_transparency (50);
-    //front.set_transparency (50);
-    //front.set_transparency (50);
-    picture.sse_blend_with (front, 1, 0);
+    front.load_file ("cat_load.bmp");
+    picture.sse_blend_with (front, 100, 100);
     picture.draw ();
-    //front.draw();
 }
