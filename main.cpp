@@ -11,7 +11,7 @@ int main()
     //front.set_transparency (50);
     //front.set_transparency (50);
     //front.set_transparency (50);
-    picture.sse_blend_with (front, 50, 0);
-    //picture.draw ();
+    picture.sse_blend_with (front, 1, 0);
+    picture.draw ();
     //front.draw();
 }

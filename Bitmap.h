@@ -362,13 +362,13 @@ void BMP_file :: sse_blend_with (const BMP_file& upper, unsigned int pos_x, unsi
 
     __m128i mask_shuffle_low = _mm_setr_epi8 (128, 0, 128, 1, 128, 2, 128, 3, 128, 4, 128, 5, 128, 6, 128, 7);
     __m128i mask_shuffle_high = _mm_setr_epi8 (128, 8, 128, 9, 128, 10, 128, 11, 128, 12, 128, 13, 128, 14, 128, 15);
-    __m128i mask_shuffle_back = _mm_setr_epi8 (1, 3, 5, 7, 9, 11, 13, 15, 128, 128, 128, 128, 128, 128, 128, 128);
-    __m128i mask_shuffle_alpha_low = _mm_setr_epi8 (128, 0, 128, 0, 128, 0, 128, 0, 128, 1, 128, 1, 128, 1, 128, 1);
-    __m128i mask_shuffle_alpha_high = _mm_setr_epi8 (128, 2, 128, 2, 128, 2, 128, 2, 128, 3, 128, 3, 128, 3, 128, 3);
+    __m128i mask_shuffle_back_low = _mm_setr_epi8 (1, 3, 5, 7, 9, 11, 13, 15, 128, 128, 128, 128, 128, 128, 128, 128);
+    __m128i mask_shuffle_back_high = _mm_setr_epi8 (128, 128, 128, 128, 128, 128, 128, 128, 1, 3, 5, 7, 9, 11, 13, 15);
     __m128i mask_add_one = _mm_setr_epi8 (0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1);
 
 
-    __m128i pixels = {};
+    __m128i src_pixels  = {};
+    __m128i dst_pixels = {};
     __m128i res_shuffle_low  = {};
     __m128i res_shuffle_high = {};
 
@@ -376,64 +376,86 @@ void BMP_file :: sse_blend_with (const BMP_file& upper, unsigned int pos_x, unsi
     __m128i res_shuffle_src_high = {};
 
 
-    __m128i res_shuffle_alpha_low  = {};
-    __m128i res_shuffle_alpha_high = {};
+    __m128i alpha_src_low  = {};
+    __m128i alpha_src_high = {};
 
 
     __m128i res_mul_low  = {};
     __m128i res_mul_high = {};
 
 
-    __m128i source_pixels = {};
-    __m128i alpha_array = {};
-    __m128i result = {};
+    __uint8_t alpha_array [4] = {};
 
 
-    for (uint32_t i = 0; i < 4; i += 4)
+    __m128i alpha_array_src = {};
+    __m128i alpha_array_src_upd = {};
+    __m128i alpha_array_dst = {};
+
+    __m128i result_low  = {};
+    __m128i result_high = {};
+
+    __uint16_t x = -4;
+    __uint16_t y = 0;
+
+    __uint16_t src_right_x = pos_x + abs (upper.bcWidth);
+    __uint16_t src_down_y  = pos_y + abs (upper.bcHeight);
+    __uint64_t src_i       = 0;
+
+    uint32_t i = 0;
+
+
+    for (unsigned int y = 0; y < abs (bcHeight); ++y)
     {
-        printf ("1 - %x, 2 - %x, 3 - %x, 4 - %x\n", data[i], data[i + 1], data[i + 2], data[i + 3]);
-        pixels = _mm_setr_epi32 (data[i], data[i + 1], data[i + 2], data[i + 3]);                                   // Stores pixels in a 128-bits register.
-        source_pixels =  _mm_setr_epi32 (upper.data[i], upper.data[i + 1], upper.data[i + 2], upper.data[i + 3]); 
-
-        alpha_array = _mm_setr_epi8 (get_alpha (data[i]), get_alpha (data[i + 1]), get_alpha (data[i + 2]), get_alpha (data[i + 3]), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
-
-        res_shuffle_low  = _mm_shuffle_epi8 (pixels, mask_shuffle_low);
-        res_shuffle_high = _mm_shuffle_epi8 (pixels, mask_shuffle_high);
+        for (unsigned int x = 0; x + 4 < abs (bcWidth); x += 4)
+        {
+            if ((x >= pos_x) && (x + 4 < pos_x + abs (upper.bcWidth)) && (y >= pos_y) && (y < pos_y + abs (upper.bcHeight)))
+            {
 
 
-        res_shuffle_src_low  = _mm_shuffle_epi8 (source_pixels, mask_shuffle_low);
-        res_shuffle_src_high = _mm_shuffle_epi8 (source_pixels, mask_shuffle_high);
+                src_i = x - pos_x + (y - pos_y) * upper.bcWidth;
+                i = x + y * bcWidth;
 
 
-        res_shuffle_low  = _mm_add_epi64 (res_shuffle_low, mask_add_one);
-        res_shuffle_high = _mm_add_epi64 (res_shuffle_high, mask_add_one);
+                dst_pixels = _mm_setr_epi32 (data[i], data[i + 1], data[i + 2], data[i + 3]);                                   // Stores pixels in a 128-bits register.
+                src_pixels =  _mm_setr_epi32 (upper.data[src_i], upper.data[src_i + 1], upper.data[src_i + 2], upper.data[src_i + 3]); 
 
 
-        res_shuffle_alpha_low  = _mm_shuffle_epi8 (alpha_array, mask_shuffle_alpha_low);
-        res_shuffle_alpha_high = _mm_shuffle_epi8 (alpha_array, mask_shuffle_alpha_high);
-
-    
-        res_mul_low  = _mm_mulhi_epu16 (res_shuffle_low, res_shuffle_alpha_low);
-        res_mul_high = _mm_mulhi_epu16 (res_shuffle_low, res_shuffle_alpha_high);
+                res_shuffle_low  = _mm_shuffle_epi8 (dst_pixels, mask_shuffle_low);
+                res_shuffle_high = _mm_shuffle_epi8 (dst_pixels, mask_shuffle_high);
 
 
-        res_shuffle_low  = _mm_add_epi64 (res_mul_low, res_shuffle_src_low);
-        res_shuffle_high = _mm_add_epi64 (res_mul_high, res_shuffle_src_high);
+                res_shuffle_src_low  = _mm_shuffle_epi8 (src_pixels, mask_shuffle_low);
+                res_shuffle_src_high = _mm_shuffle_epi8 (src_pixels, mask_shuffle_high);
 
 
-        result = _mm_shuffle_epi8 (res_shuffle_low, mask_shuffle_back);
-        _mm_storeu_si64 ((uint64_t*)(&data[i]), result);
+                for (int j = 0; j < 4; ++j)
+                    alpha_array [j] = 255 - get_alpha (upper.data [src_i + j]);
 
-        result = _mm_shuffle_epi8 (res_shuffle_high, mask_shuffle_back);
-        _mm_storeu_si64 ((uint64_t*)(&data[i]) + 1, result);
+            
+                alpha_src_low  = _mm_setr_epi8 (0, alpha_array [0], 0, alpha_array [0], 0, alpha_array [0], 0, alpha_array [0], 0, alpha_array [1], 0, alpha_array [1], 0, alpha_array [1], 0, alpha_array [1]);
+                alpha_src_high = _mm_setr_epi8 (0, alpha_array [2], 0, alpha_array [2], 0, alpha_array [2], 0, alpha_array [2], 0, alpha_array [3], 0, alpha_array [3], 0, alpha_array [3], 0, alpha_array [3]);
 
-        _mm_storeu_si128 ((__m128i*)(&data[i]), res_mul_low);
-        printf ("1 - %x, 2 - %x, 3 - %x, 4 - %x\n", data[i], data[i + 1], data[i + 2], data[i + 3]);
 
-        _mm_storeu_si128 ((__m128i*)(&data[i]), res_mul_low);
-        _mm_storeu_si128 ((__m128i*)(&data[i]) + 4, res_mul_high);
+                res_mul_low  = _mm_mulhi_epu16 (res_shuffle_low, alpha_src_low);
+                res_mul_high = _mm_mulhi_epu16 (res_shuffle_high, alpha_src_high);
 
-        printf ("1 - %x, 2 - %x, 3 - %x, 4 - %x\n", data[i], data[i + 1], data[i + 2], data[i + 3]);
+
+                res_mul_low  = _mm_add_epi64 (res_mul_low, mask_add_one);
+                res_mul_high = _mm_add_epi64 (res_mul_high, mask_add_one);
+
+
+                res_shuffle_low  = _mm_add_epi64 (res_mul_low, res_shuffle_src_low);
+                res_shuffle_high = _mm_add_epi64 (res_mul_high, res_shuffle_src_high);
+
+
+                result_low  = _mm_shuffle_epi8 (res_shuffle_low, mask_shuffle_back_low);
+                result_high = _mm_shuffle_epi8 (res_shuffle_high, mask_shuffle_back_high);
+                result_low  |= result_high;
+
+
+                _mm_storeu_si128 ((__m128i*)(&data[i]), result_low);
+            }
+        }
     }
 
 }
